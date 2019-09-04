@@ -21,24 +21,30 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyZeroInteractions;
 import static org.mockito.Mockito.when;
 
 import feign.Client;
+import feign.ExceptionHandler.RethrowExceptionHandler;
 import feign.Logger;
 import feign.Request;
 import feign.RequestEncoder;
 import feign.RequestInterceptor;
 import feign.Response;
 import feign.ResponseDecoder;
+import feign.Retry;
 import feign.TargetMethodDefinition;
 import feign.TargetMethodHandler;
 import feign.ExceptionHandler;
 import feign.http.HttpMethod;
 import feign.http.RequestSpecification;
+import feign.retry.NoRetry;
 import feign.template.SimpleTemplateParameter;
+import java.io.InputStream;
 import java.util.Collections;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -47,8 +53,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+@SuppressWarnings("ThrowableNotThrown")
 @ExtendWith(MockitoExtension.class)
 class AbstractTargetMethodHandlerTest {
 
@@ -63,8 +71,8 @@ class AbstractTargetMethodHandlerTest {
   @Mock
   private ResponseDecoder decoder;
 
-  @Mock
-  private ExceptionHandler exceptionHandler;
+  @Spy
+  private ExceptionHandler exceptionHandler = new RethrowExceptionHandler();
 
   @Mock
   private RequestInterceptor interceptor;
@@ -74,6 +82,8 @@ class AbstractTargetMethodHandlerTest {
 
   @Mock
   private Logger logger;
+
+  private Retry retry = new NoRetry();
 
   private Executor executor = Executors.newSingleThreadExecutor();
 
@@ -87,6 +97,7 @@ class AbstractTargetMethodHandlerTest {
   @Test
   void interceptors_areApplied_ifPresent() throws Throwable {
     when(this.client.request(any(Request.class))).thenReturn(this.response);
+    when(this.response.body()).thenReturn(mock(InputStream.class));
     this.targetMethodDefinition.returnType(String.class)
         .uri("/resources/{name}")
         .method(HttpMethod.GET)
@@ -101,7 +112,8 @@ class AbstractTargetMethodHandlerTest {
         this.decoder,
         this.exceptionHandler,
         this.executor,
-        this.logger);
+        this.logger,
+        this.retry);
 
     targetMethodHandler.execute(Arrays.array("name", "body"));
     verify(encoder, times(1)).apply(any(), any(RequestSpecification.class));
@@ -114,6 +126,7 @@ class AbstractTargetMethodHandlerTest {
   @Test
   void interceptors_areNotApplied_ifNotPresent() throws Throwable {
     when(this.client.request(any(Request.class))).thenReturn(this.response);
+    when(this.response.body()).thenReturn(mock(InputStream.class));
     this.targetMethodDefinition.returnType(String.class)
         .uri("/resources/{name}")
         .method(HttpMethod.GET)
@@ -128,7 +141,8 @@ class AbstractTargetMethodHandlerTest {
         this.decoder,
         this.exceptionHandler,
         this.executor,
-        this.logger);
+        this.logger,
+        this.retry);
 
     targetMethodHandler.execute(Arrays.array("name", "body"));
     verify(encoder, times(1)).apply(any(), any(RequestSpecification.class));
@@ -140,6 +154,7 @@ class AbstractTargetMethodHandlerTest {
   @Test
   void skipEncoding_withNoBody() throws Throwable {
     when(this.client.request(any(Request.class))).thenReturn(this.response);
+    when(this.response.body()).thenReturn(mock(InputStream.class));
     this.targetMethodDefinition.returnType(String.class)
             .uri("/resources/{name}")
             .method(HttpMethod.GET)
@@ -153,7 +168,8 @@ class AbstractTargetMethodHandlerTest {
         this.decoder,
         this.exceptionHandler,
         this.executor,
-        this.logger);
+        this.logger,
+        this.retry);
 
     targetMethodHandler.execute(Arrays.array("name"));
     verify(client, times(1)).request(any(Request.class));
@@ -164,6 +180,58 @@ class AbstractTargetMethodHandlerTest {
 
   @Test
   void skipDecode_ifReturnType_isResponse() throws Throwable {
+    when(this.client.request(any(Request.class))).thenReturn(this.response);
+    when(this.response.body()).thenReturn(mock(InputStream.class));
+    this.targetMethodDefinition.returnType(Response.class)
+        .uri("/resources/{name}")
+        .method(HttpMethod.GET)
+        .templateParameter(0, new SimpleTemplateParameter("name"));
+
+    TargetMethodHandler targetMethodHandler = new BlockingTargetMethodHandler(
+        this.targetMethodDefinition,
+        this.encoder,
+        Collections.singletonList(this.interceptor),
+        this.client,
+        this.decoder,
+        this.exceptionHandler,
+        this.executor,
+        this.logger,
+        this.retry);
+
+    Object result = targetMethodHandler.execute(Arrays.array("name"));
+    verify(client, times(1)).request(any(Request.class));
+    verify(interceptor, times(1)).accept(any(RequestSpecification.class));
+    verifyZeroInteractions(this.exceptionHandler, this.encoder, this.decoder);
+    assertThat(result).isInstanceOf(Response.class);
+  }
+
+  @Test
+  void skipDecode_ifResponseIsNull() throws Throwable {
+    this.targetMethodDefinition.returnType(Response.class)
+        .uri("/resources/{name}")
+        .method(HttpMethod.GET)
+        .templateParameter(0, new SimpleTemplateParameter("name"));
+
+    TargetMethodHandler targetMethodHandler = new BlockingTargetMethodHandler(
+        this.targetMethodDefinition,
+        this.encoder,
+        Collections.singletonList(this.interceptor),
+        this.client,
+        this.decoder,
+        this.exceptionHandler,
+        this.executor,
+        this.logger,
+        this.retry);
+
+    Object result = targetMethodHandler.execute(Arrays.array("name"));
+    verify(client, times(1)).request(any(Request.class));
+    verify(interceptor, times(1)).accept(any(RequestSpecification.class));
+    verifyZeroInteractions(this.exceptionHandler, this.encoder, this.decoder);
+    assertThat(result).isNull();
+  }
+
+  @Test
+  void skipDecode_ifResponseBody_isNull() throws Throwable {
     when(this.client.request(any(Request.class))).thenReturn(this.response);
     this.targetMethodDefinition.returnType(Response.class)
         .uri("/resources/{name}")
@@ -178,13 +246,40 @@ class AbstractTargetMethodHandlerTest {
         this.decoder,
         this.exceptionHandler,
         this.executor,
-        this.logger);
+        this.logger,
+        this.retry);
 
     Object result = targetMethodHandler.execute(Arrays.array("name"));
     verify(client, times(1)).request(any(Request.class));
     verify(interceptor, times(1)).accept(any(RequestSpecification.class));
     verifyZeroInteractions(this.exceptionHandler, this.encoder, this.decoder);
-    assertThat(result).isInstanceOf(Response.class);
+    assertThat(result).isNull();
+  }
+
+  @Test
+  void skipDecode_ifReturnType_Void() throws Throwable {
+    when(this.client.request(any(Request.class))).thenReturn(this.response);
+    this.targetMethodDefinition.returnType(void.class)
+        .uri("/resources/{name}")
+        .method(HttpMethod.GET)
+        .templateParameter(0, new SimpleTemplateParameter("name"));
+
+    TargetMethodHandler targetMethodHandler = new BlockingTargetMethodHandler(
+        this.targetMethodDefinition,
+        this.encoder,
+        Collections.singletonList(this.interceptor),
+        this.client,
+        this.decoder,
+        this.exceptionHandler,
+        this.executor,
+        this.logger,
+        this.retry);
+
+    Object result = targetMethodHandler.execute(Arrays.array("name"));
+    verify(client, times(1)).request(any(Request.class));
+    verify(interceptor, times(1)).accept(any(RequestSpecification.class));
+    verifyZeroInteractions(this.exceptionHandler, this.encoder, this.decoder);
+    assertThat(result).isNull();
   }
 
   @Test
@@ -206,12 +301,13 @@ class AbstractTargetMethodHandlerTest {
         this.decoder,
         this.exceptionHandler,
         this.executor,
-        this.logger);
+        this.logger,
+        this.retry);
 
-    assertThrows(IllegalStateException.class,
+    assertThrows(RuntimeException.class,
         () -> targetMethodHandler.execute(Arrays.array("name")));
     verifyZeroInteractions(this.client, this.decoder);
-    verify(this.exceptionHandler, times(1)).accept(any(Throwable.class));
+    verify(this.exceptionHandler, times(1)).apply(any(Throwable.class));
   }
 
   @Test
@@ -230,13 +326,46 @@ class AbstractTargetMethodHandlerTest {
         this.decoder,
         this.exceptionHandler,
         this.executor,
-        this.logger);
+        this.logger,
+        this.retry);
 
-    assertThrows(IllegalStateException.class,
+    assertThrows(RuntimeException.class,
         () -> targetMethodHandler.execute(Arrays.array("name")));
     verify(this.client, times(1)).request(any(Request.class));
-    verify(this.exceptionHandler, times(1)).accept(any(Throwable.class));
+    verify(this.exceptionHandler, times(1)).apply(any(Throwable.class));
     verifyZeroInteractions(this.decoder);
+  }
+
+  @Test
+  void exceptionHandlerCalled_ifErrorDuringDecode() {
+    when(this.client.request(any(Request.class))).thenReturn(this.response);
+    when(this.response.body()).thenReturn(mock(InputStream.class));
+    when(this.decoder.decode(any(Response.class), any())).thenThrow(new RuntimeException("bad"));
+    this.targetMethodDefinition.returnType(String.class)
+        .uri("/resources/{name}")
+        .method(HttpMethod.GET)
+        .templateParameter(0, new SimpleTemplateParameter("name"))
+        .body(1);
+
+    ExceptionHandler exceptionHandler = spy(new RethrowExceptionHandler());
+    TargetMethodHandler targetMethodHandler = new BlockingTargetMethodHandler(
+        this.targetMethodDefinition,
+        this.encoder,
+        Collections.singletonList(this.interceptor),
+        this.client,
+        this.decoder,
+        exceptionHandler,
+        this.executor,
+        this.logger,
+        this.retry);
+
+    assertThrows(RuntimeException.class,
+        () -> targetMethodHandler.execute(Arrays.array("name", "body")));
+    verify(encoder, times(1)).apply(any(), any(RequestSpecification.class));
+    verify(client, times(1)).request(any(Request.class));
+    verify(decoder, times(1)).decode(any(Response.class), eq(String.class));
+    verify(interceptor, times(1)).accept(any(RequestSpecification.class));
+    verify(exceptionHandler, times(1)).apply(any(Throwable.class));
   }
 
   interface TestInterface {

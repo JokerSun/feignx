@@ -17,7 +17,6 @@
 package feign.http;
 
 import feign.Client;
-import feign.Request;
 import java.util.Optional;
 
 /**
@@ -61,6 +60,19 @@ public class HttpException extends RuntimeException {
   public HttpException(String message, Throwable cause, HttpRequest request,
       HttpResponse response) {
     super(message, cause);
+    this.request = request;
+    this.response = response;
+  }
+
+  /**
+   * Creates a new HttpException.
+   *
+   * @param message fo the exception.
+   * @param request that was attempted.
+   * @param response response that was received.
+   */
+  public HttpException(String message, HttpRequest request, HttpResponse response) {
+    super(message);
     this.request = request;
     this.response = response;
   }

@@ -16,13 +16,20 @@
 
 package feign.template;
 
-class FragmentExpressionTest extends ReservedExpressionTest {
+/**
+ * Manages the expansion of a given Expression.  Implementations are expected to provide a
+ * default, no-argument constructor and be thread-safe, to encourage lazy initialization and reuse
+ * between {@link feign.Target}s.
+ */
+public interface ExpressionExpander {
 
-  @Override
-  protected Expression getExpression(String variableSpecification, int limit) {
-    FragmentExpression fragmentExpression = new FragmentExpression(variableSpecification);
-    fragmentExpression.setLimit(limit);
-    return fragmentExpression;
+  /**
+   * Expand the given expression, using the value provided.
+   *
+   * @param variable to expand.
+   * @param value containing the variable values.
+   * @return the expanded result, an empty string, or {@literal null}.
+   */
+  String expand(ExpressionVariable variable, Object value);
 
-  }
 }

@@ -14,14 +14,22 @@
  * limitations under the License.
  */
 
-package feign.template;
+package feign.retry;
 
-class SimpleExpressionTest extends ExpressionTest {
+import feign.Request;
+import feign.Response;
+import feign.Retry;
+import java.util.function.Function;
+
+/**
+ * Executes the callback without any retries.
+ */
+public class NoRetry implements Retry {
 
   @Override
-  protected Expression getExpression(String variableSpecification, int limit) {
-    Expression expression = new SimpleExpression(variableSpecification);
-    expression.setLimit(limit);
-    return expression;
+  public Response execute(
+      String methodName, Request request, Function<Request, Response> callback) {
+    /* execute the callback with no retry support */
+    return callback.apply(request);
   }
 }

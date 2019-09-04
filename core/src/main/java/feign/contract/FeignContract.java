@@ -20,7 +20,11 @@ import feign.TargetMethodDefinition;
 import feign.http.HttpHeader;
 import feign.http.HttpMethod;
 import feign.support.StringUtils;
+import feign.template.ExpanderRegistry;
+import feign.template.ExpressionExpander;
 import feign.template.SimpleTemplateParameter;
+import feign.template.expander.CachingExpanderRegistry;
+import feign.template.expander.DefaultExpander;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.Type;
@@ -32,6 +36,15 @@ import java.util.List;
  * Contract that uses Feign annotations.
  */
 public class FeignContract extends AbstractAnnotationDrivenContract {
+
+  private ExpanderRegistry expanderRegistry = new CachingExpanderRegistry();
+
+  /**
+   * Creates a new Feign Contract.
+   */
+  public FeignContract() {
+    super();
+  }
 
   /**
    * Process any Annotations present on the Target Type.  Any values determined here should be
@@ -85,7 +98,10 @@ public class FeignContract extends AbstractAnnotationDrivenContract {
       TargetMethodDefinition targetMethodDefinition) {
     if (parameter.isAnnotationPresent(Param.class)) {
       this.processParameter(
-          parameter.getAnnotation(Param.class), parameterIndex, targetMethodDefinition);
+          parameter.getAnnotation(Param.class),
+          parameterIndex,
+          parameter.getType(),
+          targetMethodDefinition);
     }
     if (parameter.isAnnotationPresent(Body.class)) {
       targetMethodDefinition.body(parameterIndex);
@@ -142,12 +158,26 @@ public class FeignContract extends AbstractAnnotationDrivenContract {
    *
    * @param parameter annotation to process.
    * @param index of the parameter in the method signature.
+   * @param type of the parameter.
    * @param targetMethodDefinition for the parameter.
    */
-  private void processParameter(Param parameter, Integer index,
+  private void processParameter(Param parameter, Integer index, Class<?> type,
       TargetMethodDefinition targetMethodDefinition) {
     String name = parameter.value();
-    targetMethodDefinition.templateParameter(index, new SimpleTemplateParameter(name));
+    Class<? extends ExpressionExpander> expanderClass = parameter.expander();
+
+    /* inspect the type annotated */
+    ExpressionExpander expander;
+    if (this.isCustomExpander(expanderClass)) {
+      /* retrieve an instance of the custom expander */
+      expander = this.expanderRegistry.getExpander(expanderClass);
+    } else {
+      /* retrieve the expander from the registry by the parameter type */
+      expander = this.expanderRegistry.getExpanderByType(type);
+    }
+
+    targetMethodDefinition.templateParameter(
+        index, new SimpleTemplateParameter(name, expander));
   }
 
   /**
@@ -178,5 +208,9 @@ public class FeignContract extends AbstractAnnotationDrivenContract {
 
   private Type getMethodReturnType(Method method) {
     return method.getGenericReturnType();
+  }
+
+  private boolean isCustomExpander(Class<? extends ExpressionExpander> expanderClass) {
+    return DefaultExpander.class != expanderClass;
   }
 }

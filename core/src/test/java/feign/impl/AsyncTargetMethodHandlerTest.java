@@ -33,14 +33,20 @@ import feign.Logger;
 import feign.RequestEncoder;
 import feign.Response;
 import feign.ResponseDecoder;
+import feign.Retry;
 import feign.TargetMethodDefinition;
+import feign.TargetMethodHandler;
 import feign.contract.FeignContract;
 import feign.contract.Request;
 import feign.impl.AsyncTargetMethodHandlerTest.Blog.Post;
+import feign.retry.NoRetry;
+import feign.support.AuditingExecutor;
+import java.io.InputStream;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +57,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+@SuppressWarnings("ThrowableNotThrown")
 @ExtendWith(MockitoExtension.class)
 class AsyncTargetMethodHandlerTest {
 
@@ -79,6 +86,10 @@ class AsyncTargetMethodHandlerTest {
 
   private AsyncTargetMethodHandler methodHandler;
 
+  private Retry retry = new NoRetry();
+
+  private Executor executor = Executors.newFixedThreadPool(10);
+
   @BeforeEach
   void setUp() {
     Collection<TargetMethodDefinition> methodDefinitions =
@@ -92,14 +103,16 @@ class AsyncTargetMethodHandlerTest {
         client,
         decoder,
         exceptionHandler,
-        Executors.newFixedThreadPool(10),
-        logger);
+        this.executor,
+        logger,
+        retry);
   }
 
   @SuppressWarnings("unchecked")
   @Test
   void returnWrappedFuture_onSuccess() throws Exception {
     when(this.client.request(any(feign.Request.class))).thenReturn(this.response);
+    when(this.response.body()).thenReturn(mock(InputStream.class));
     when(this.decoder.decode(any(Response.class), any())).thenReturn("results");
     Object result = this.methodHandler.execute(new Object[]{});
 
@@ -116,7 +129,7 @@ class AsyncTargetMethodHandlerTest {
 
   @SuppressWarnings("unchecked")
   @Test
-  void throwException_onFailure() throws Exception {
+  void throwException_onFailure() {
     when(this.client.request(any(feign.Request.class))).thenThrow(new RuntimeException("Failed"));
     Object result = this.methodHandler.execute(new Object[]{});
 
@@ -127,12 +140,12 @@ class AsyncTargetMethodHandlerTest {
 
     assertThat(future).isCompletedExceptionally();
     verifyZeroInteractions(this.decoder);
-    verify(this.exceptionHandler, times(1)).accept(any(Throwable.class));
+    verify(this.exceptionHandler, times(1)).apply(any(Throwable.class));
   }
 
   @SuppressWarnings("unchecked")
   @Test
-  void methodNotHandled_returnsNull() throws Exception {
+  void methodNotHandled_returnsNull() {
     Collection<TargetMethodDefinition> methodDefinitions =
         this.contract.apply(new UriTarget<>(Blog.class, "https://www.example.com"));
     TargetMethodDefinition targetMethodDefinition = methodDefinitions.stream()
@@ -146,7 +159,8 @@ class AsyncTargetMethodHandlerTest {
         decoder,
         mockHandler,
         Executors.newFixedThreadPool(10),
-        logger);
+        logger,
+        retry);
 
     when(this.client.request(any(feign.Request.class))).thenThrow(new RuntimeException("Failed"));
     Object result = this.methodHandler.execute(new Object[]{});
@@ -154,12 +168,36 @@ class AsyncTargetMethodHandlerTest {
     /* ensure that the method handler returned a future, which contains a string */
     assertThat(result).isInstanceOf(CompletableFuture.class);
     CompletableFuture<String> future = (CompletableFuture<String>) result;
-    future.get();
+    assertThrows(ExecutionException.class, future::get);
 
-    assertThat(future).isCompleted();
-    assertThat(future).isCompletedWithValue(null);
+    assertThat(future).isCompletedExceptionally();
     verifyZeroInteractions(this.decoder);
-    verify(mockHandler, times(1)).accept(any(Throwable.class));
+    verify(mockHandler, times(1)).apply(any(Throwable.class));
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  void usingMultiThreadedExecutor_willExecuteOnOtherThreads() throws Throwable {
+    AuditingExecutor executor = new AuditingExecutor(this.executor);
+    Collection<TargetMethodDefinition> methodDefinitions =
+        this.contract.apply(new UriTarget<>(Blog.class, "https://www.example.com"));
+    TargetMethodDefinition targetMethodDefinition = methodDefinitions.stream()
+        .findFirst().get();
+    TargetMethodHandler asyncTargetMethodHandler = new AsyncTargetMethodHandler(targetMethodDefinition, encoder,
+        Collections.emptyList(), client, decoder, exceptionHandler, executor, logger, retry);
+
+    /* get the current thread id */
+    long currentThread = Thread.currentThread().getId();
+
+    /* execute the request */
+    CompletableFuture<Object> result =
+        (CompletableFuture) asyncTargetMethodHandler.execute(new Object[]{});
+    result.get();
+
+    /* make sure that the executor used different threads */
+    assertThat(executor.getThreads()).doesNotHaveDuplicates()
+        .hasSizeGreaterThan(1).contains(currentThread);
+    assertThat(executor.getExecutionCount()).isEqualTo(5);
   }
 
   interface Blog {

@@ -14,14 +14,17 @@
  * limitations under the License.
  */
 
-package feign.template;
+package feign.template.expander;
 
-class FormStyleExpressionTest extends StyleExpressionTest {
+import static org.junit.jupiter.api.Assertions.*;
 
-  @Override
-  protected Expression getExpression(String variableSpecification, int limit) {
-    Expression expression = new FormStyleExpression(variableSpecification);
-    expression.setLimit(limit);
-    return expression;
+import org.junit.jupiter.api.Test;
+
+class DefaultExpanderTest {
+
+  @Test
+  void cannotBeUsed() {
+    DefaultExpander expander = new DefaultExpander();
+    assertThrows(UnsupportedOperationException.class, () -> expander.expand(null, null));
   }
 }

@@ -14,27 +14,30 @@
  * limitations under the License.
  */
 
-package feign.template;
+package feign;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.Collections;
 import org.junit.jupiter.api.Test;
 
-class DotExpressionTest extends SimpleExpressionTest {
-
-  @Override
-  protected Expression getExpression(String variableSpecification, int limit) {
-    Expression expression = new DotExpression(variableSpecification);
-    expression.setLimit(limit);
-    return expression;
-  }
-
+class RequestOptionsTest {
 
   @Test
-  void expand_domain() {
-    Expression expression = this.getExpression("{dom*}", -1);
-    String result = expression.expand(Collections.singletonMap("dom", dom));
-    assertThat(result).isEqualTo(".example.com");
+  void isEqual_byHashCode() {
+    RequestOptions options = RequestOptions.builder().build();
+    RequestOptions duplicate = RequestOptions.builder().build();
+    assertThat(options.hashCode()).isEqualTo(duplicate.hashCode());
+  }
+
+  @Test
+  void isEqual_toItself() {
+    RequestOptions options = RequestOptions.builder().build();
+    assertThat(options).isEqualTo(options);
+  }
+
+  @Test
+  void isNotEqual_toOtherTypes() {
+    RequestOptions options = RequestOptions.builder().build();
+    assertThat(options).isNotEqualTo("A String");
   }
 }

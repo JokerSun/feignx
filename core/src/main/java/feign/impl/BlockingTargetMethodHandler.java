@@ -21,13 +21,14 @@ import feign.ExceptionHandler;
 import feign.Logger;
 import feign.RequestEncoder;
 import feign.RequestInterceptor;
-import feign.Response;
 import feign.ResponseDecoder;
+import feign.Retry;
 import feign.TargetMethodDefinition;
+import feign.exception.FeignException;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.RunnableFuture;
 
 /**
  * HttpMethod handler that uses the calling thread to process the request and response.
@@ -43,33 +44,44 @@ public class BlockingTargetMethodHandler extends AbstractTargetMethodHandler {
    * @param client to send the request and create the response.
    * @param decoder to use when parsing the response.
    * @param exceptionHandler to delegate to when an exception occurs.
-   * @param logger to use.
+   * @param executor for the request to run on.
+   * @param logger for logging requests and responses.
+   * @param retry for retrying requests.
    */
   BlockingTargetMethodHandler(TargetMethodDefinition targetMethodDefinition,
       RequestEncoder encoder, List<RequestInterceptor> interceptors,
       Client client, ResponseDecoder decoder,
-      ExceptionHandler exceptionHandler, Executor executor, Logger logger) {
+      ExceptionHandler exceptionHandler, Executor executor, Logger logger,
+      Retry retry) {
     /* create a new method handler, with a synchronous executor */
     super(targetMethodDefinition, encoder, interceptors, client, decoder, exceptionHandler,
-        executor, logger);
+        executor, logger, retry);
   }
 
   /**
    * Blocks the calling thread, waiting for the result of the request.
    *
-   * @param request being processed.
+   * @param result being processed.
    * @return the decoded response.
-   * @throws Exception if the response could not be processed.
    */
   @Override
-  protected Object handleResponse(CompletableFuture<Response> request) throws Exception {
+  protected Object handleResponse(CompletableFuture<Object> result) {
+    try {
+      /* pull the result of the task immediately, waiting for it to complete */
+      return result.get();
+    } catch (ExecutionException eex) {
+      /* an error occurred.  by this point the error handler should have been called
+       * already, check the cause of the exception and throw it higher.
+       */
+      Throwable cause = eex.getCause();
 
-    /* pull the result of the task immediately, waiting for it to complete */
-    log.debug("Waiting for the Response.");
-    try (Response response = request.get()) {
-      /* decode and close the response */
-      log.debug("Response received, decoding. Response: {}", response);
-      return this.decode(response);
+      /* just rethrow, the exception handler must throw a RuntimeException since it has
+       * no checked exceptions in it's signature. */
+      throw (RuntimeException) cause;
+
+    } catch (InterruptedException ie) {
+      /* the request was interrupted */
+      throw new FeignException(ie.getMessage(), ie, this.targetMethodDefinition.getTag());
     }
   }
 }

@@ -21,8 +21,8 @@ import feign.ExceptionHandler;
 import feign.Logger;
 import feign.RequestEncoder;
 import feign.RequestInterceptor;
-import feign.Response;
 import feign.ResponseDecoder;
+import feign.Retry;
 import feign.TargetMethodDefinition;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -43,15 +43,16 @@ public class AsyncTargetMethodHandler extends AbstractTargetMethodHandler {
    * @param client to send the request and create the response.
    * @param decoder to use when parsing the response.
    * @param exceptionHandler to delegate to when an exception occurs.
-   * @param executor to execute the request on.
+   * @param executor to request the request on.
    * @param logger for logging requests and responses.
+   * @param retry for retrying requests.
    */
   AsyncTargetMethodHandler(TargetMethodDefinition targetMethodDefinition,
       RequestEncoder encoder, List<RequestInterceptor> interceptors,
       Client client, ResponseDecoder decoder, ExceptionHandler exceptionHandler,
-      Executor executor, Logger logger) {
+      Executor executor, Logger logger, Retry retry) {
     super(targetMethodDefinition, encoder, interceptors, client, decoder, exceptionHandler,
-        executor, logger);
+        executor, logger, retry);
   }
 
   /**
@@ -59,20 +60,12 @@ public class AsyncTargetMethodHandler extends AbstractTargetMethodHandler {
    * CompletableFuture} containing the decoded Response body.  The method handler's Executor is used
    * for this future.
    *
-   * @param response Future containing the results of the request.
+   * @param result Future containing the results of the request.
    * @return a {@link CompletableFuture} reference wrapping the results.
    */
   @Override
-  protected Object handleResponse(CompletableFuture<Response> response) {
-    /* handle the result of the future */
-    return response.handle((resp, throwable) -> {
-      if (throwable != null) {
-        /* invoke the exception handler here, as it will not be thrown to the parent. */
-        getExceptionHandler().accept(throwable);
-      } else {
-        return decode(resp);
-      }
-      return null;
-    });
+  protected Object handleResponse(CompletableFuture<Object> result) {
+    /* let the caller decide what to do with it */
+    return result;
   }
 }

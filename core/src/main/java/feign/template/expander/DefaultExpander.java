@@ -14,14 +14,15 @@
  * limitations under the License.
  */
 
-package feign.template;
+package feign.template.expander;
 
-class FormContinuationStyleExpressionTest extends FormStyleExpressionTest {
+import feign.template.ExpressionExpander;
+import feign.template.ExpressionVariable;
+
+public class DefaultExpander implements ExpressionExpander {
 
   @Override
-  protected Expression getExpression(String variableSpecification, int limit) {
-    Expression expression = new FormContinuationStyleExpression(variableSpecification);
-    expression.setLimit(limit);
-    return expression;
+  public String expand(ExpressionVariable variable, Object value) {
+    throw new UnsupportedOperationException("expansion is not supported.");
   }
 }
